@@ -34,6 +34,17 @@ export function ExtrasScreen() {
           onPress={() => navigation.navigate('ExtrasPractice')}
         />
       </Section>
+
+      <Section title="Сеть (fetch)">
+        <Text style={styles.p}>
+          Простой GET-запрос к публичному API: состояния загрузки, ошибки и{' '}
+          <Text style={styles.code}>FlatList</Text> для списка.
+        </Text>
+        <PrimaryButton
+          title="Экран с запросом (ExtrasFetch)"
+          onPress={() => navigation.navigate('ExtrasFetch')}
+        />
+      </Section>
     </View>
   );
 }

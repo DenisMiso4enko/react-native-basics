@@ -8,6 +8,8 @@ export type RootStackParamList = {
 export type ExtrasStackParamList = {
   ExtrasHome: undefined;
   ExtrasPractice: undefined;
+  ExtrasFetch: undefined;
+  ExtrasFetchPost: { postId: number };
 };
 
 /** Нижний таб-бар — отдельные «ветки» навигации. */

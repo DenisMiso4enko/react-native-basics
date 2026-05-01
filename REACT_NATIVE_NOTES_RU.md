@@ -13,7 +13,7 @@
 - **`App.tsx`**: корневой компонент (`GestureHandlerRootView`, `SafeAreaProvider`, `NavigationContainer`).
 - **`index.js`**: первой строкой импорт `react-native-gesture-handler` (нужен для жестов навигатора).
 - **`src/navigation/`**: табы, стеки и типы (`RootNavigator`, `MainTabs`, `MainStack`, `ExtrasStack`, `types.ts`).
-- **`src/screens/`**: экраны (`HomeScreen`, `LearningBasicsScreen`, `ExtrasScreen`, `ExtrasPracticeScreen`).
+- **`src/screens/`**: экраны (`HomeScreen`, `LearningBasicsScreen`, `ExtrasScreen`, `ExtrasPracticeScreen`, `FetchDemoScreen`, `FetchSinglePost`).
 - **`src/components/*`**: маленькие переиспользуемые UI-компоненты.
 - **`ios/`**: Xcode проект + `Podfile` (CocoaPods).
 - **`android/`**: Gradle проект.
@@ -97,7 +97,7 @@
 
 1. **`MainTabsNavigator`** (`MainTabs.tsx`) — два таба: «Обзор» и «Ещё».
 2. Таб **«Обзор»** рендерит **`MainStackNavigator`**: экраны `Home` → `Basics`.
-3. Таб **«Ещё»** рендерит **`ExtrasStackNavigator`**: `ExtrasHome` → `ExtrasPractice` (переход `navigation.navigate('ExtrasPractice')` с первого экрана вкладки).
+3. Таб **«Ещё»** рендерит **`ExtrasStackNavigator`**: цепочка включает `ExtrasHome`, `ExtrasPractice`, `ExtrasFetch` и **`ExtrasFetchPost`** (один пост по id).
 
 Типы:
 
@@ -107,16 +107,32 @@
 
 Аналогия с вебом: стек ≈ история «вперёд/назад» внутри раздела; табы ≈ несколько независимых «корневых» разделов приложения.
 
+### Параметры маршрута (пример `ExtrasFetchPost`)
+
+- В **`ExtrasStackParamList`** для экрана с данными задаётся тип вроде `ExtrasFetchPost: { postId: number }`.
+- Переход со списка: обернуть строку в **`Pressable`**, вызвать `navigation.navigate('ExtrasFetchPost', { postId: item.id })`. Чтобы TypeScript понимал `navigate`, на экране списка задай тип **`NativeStackNavigationProp<ExtrasStackParamList, 'ExtrasFetch'>`** (или родительское имя экрана, откуда ведёт переход).
+- На экране деталки параметры берут через **`useRoute`** с типом **`RouteProp<ExtrasStackParamList, 'ExtrasFetchPost'>`** — тогда `params.postId` типизирован, без обращения к «голому» `params` из ниоткуда. Импорты навигаторных хуков — из **`@react-navigation/native`**.
+- По желанию после загрузки данных меняют заголовок шапки: **`navigation.setOptions({ title: '…' })`** (в проекте — укороченный `title` поста).
+
 ### Полезные приёмы дальше
 
-- Параметры экрана: `navigate('Detail', { id: '42' })` + типизация в `RootStackParamList`.
+- **Deep linking** (открыть тот же экран по URL / из пуша) — следующий шаг после ручного `navigate`.
 - Иконки в табах: `tabBarIcon` (часто подключают библиотеку иконок).
 - Сброс стека при смене таба, `listener` на `tabPress` — по необходимости.
 
+## Сеть (fetch) в этом проекте
+
+- В RN для HTTP чаще всего используют **`fetch`** (как во многих современных браузерах) или обёртки вроде `axios`; специализированная библиотека RN не обязательна для простых случаев.
+- Экран **`FetchDemoScreen`** (`ExtrasFetch` в **`ExtrasStack`**) делает GET к публичному демо-API JSONPlaceholder по HTTPS (`/posts?_limit=10`).
+- Экран **`FetchSinglePost`** (`ExtrasFetchPost`) по **`postId` из параметров маршрута** запрашивает один ресурс (`GET …/posts/{id}`). Тот же паттерн состояний: загрузка, ошибка с «Повторить», успех и **`AbortController`** в `useEffect` (перезапуск при смене `postId` или повторе после ошибки). Тип записи **`JsonPlaceholderPost`** экспортируется из `FetchDemoScreen` и переиспользуется.
+- **Состояния UI на списке**: загрузка (`ActivityIndicator`), ошибка с текстом + кнопка «Повторить» (перезапуск через зависимость `useEffect`, например счётчик), успех (`FlatList` с `data`, `renderItem`, `keyExtractor`).
+- **Отмена запроса**: в `useEffect` создаётся **`AbortController`**, в очистке эффекта вызывается `abort()` — чтобы после ухода с экрана не вызывать `setState` по завершении старого запроса. В `catch` игнорируют отмену (`AbortError`).
+- После ошибки HTTP проверяй **`response.ok`** (или код статуса) — `fetch` по умолчанию **не считает 4xx/5xx ошибкой**, только сетевые сбои.
+
 ## Дальше (что учить следующим шагом)
 
-- **Параметры маршрута и deep linking** (открытие экрана по URL / пушу).
-- **Сеть**: `fetch`, обработка ошибок, loading-state, retry.
+- **Deep linking** (то же приложение из внешней ссылки / пуша с id в пути или query).
+- **Сеть глубже**: вынос клиента в `services/api.ts`, TanStack Query / SWR, авторизация, таймауты.
 - **Архитектура**: разделение `screens/`, `components/`, `services/`, `state/`.
 - **Состояние**: Context, Zustand, Redux Toolkit (по мере роста).
 - **Нативные модули**: когда нужно то, чего нет в JS.
