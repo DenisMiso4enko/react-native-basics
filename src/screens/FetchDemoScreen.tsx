@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -8,95 +8,133 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { PrimaryButton } from '../components/PrimaryButton';
 import type { ExtrasStackParamList } from '../navigation/types';
+import {
+  fetchJsonPlaceholderPostsPage,
+  jsonPlaceholderQueryKeys,
+} from '../services/jsonPlaceholderApi';
+import type { JsonPlaceholderPost } from '../types/jsonPlaceholder';
 
 type FetchListNav = NativeStackNavigationProp<
   ExtrasStackParamList,
   'ExtrasFetch'
 >;
 
-const POSTS_URL = 'https://jsonplaceholder.typicode.com/posts?_limit=10';
-
-export type JsonPlaceholderPost = {
-  userId: number;
-  id: number;
-  title: string;
-  body: string;
-};
-
-async function fetchPosts(signal: AbortSignal): Promise<JsonPlaceholderPost[]> {
-  const res = await fetch(POSTS_URL, { signal });
-  if (!res.ok) {
-    throw new Error(`Сервер ответил ${res.status}`);
-  }
-  return (await res.json()) as JsonPlaceholderPost[];
-}
-
-type State =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'success'; posts: JsonPlaceholderPost[] };
+const PAGE_SIZE = 10;
 
 export function FetchDemoScreen() {
-  const [state, setState] = useState<State>({ status: 'loading' });
-  const [retryNonce, setRetryNonce] = useState(0);
   const navigation = useNavigation<FetchListNav>();
+  const {
+    data,
+    error,
+    isPending,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+    isRefetching,
+    isFetchNextPageError,
+  } = useInfiniteQuery({
+    queryKey: jsonPlaceholderQueryKeys.postsInfinite(PAGE_SIZE),
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      fetchJsonPlaceholderPostsPage({
+        signal,
+        start: pageParam,
+        limit: PAGE_SIZE,
+      }),
+    getNextPageParam: (lastPage, _pages, lastPageParam) => {
+      if (lastPage.length < PAGE_SIZE) return undefined;
+      return lastPageParam + PAGE_SIZE;
+    },
+  });
 
-  const retry = useCallback(() => setRetryNonce(n => n + 1), []);
+  const flatPosts = useMemo(
+    () => data?.pages.flatMap(p => p) ?? [],
+    [data?.pages],
+  );
 
-  useEffect(() => {
-    const ac = new AbortController();
-    setState({ status: 'loading' });
+  const errMessage =
+    error instanceof Error ? error.message : 'Не удалось загрузить данные';
 
-    fetchPosts(ac.signal)
-      .then(posts => {
-        setState({ status: 'success', posts });
-      })
-      .catch(e => {
-        if (e instanceof Error && e.name === 'AbortError') return;
-        const message =
-          e instanceof Error ? e.message : 'Не удалось загрузить данные';
-        setState({ status: 'error', message });
-      });
+  const onEndReached = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-    return () => ac.abort();
-  }, [retryNonce]);
+  const renderFooter = useCallback(() => {
+    if (isFetchingNextPage) {
+      return (
+        <View style={styles.footerLoad}>
+          <ActivityIndicator color="#2563eb" />
+          <Text style={styles.muted}>Ещё посты…</Text>
+        </View>
+      );
+    }
+    if (isFetchNextPageError) {
+      return (
+        <View style={styles.footerError}>
+          <Text style={styles.footerErrorText}>Не удалось подгрузить страницу</Text>
+          <PrimaryButton title="Повторить" onPress={() => fetchNextPage()} />
+        </View>
+      );
+    }
+    if (!hasNextPage && flatPosts.length > 0) {
+      return <Text style={styles.endHint}>Все посты загружены</Text>;
+    }
+    return null;
+  }, [
+    isFetchingNextPage,
+    isFetchNextPageError,
+    hasNextPage,
+    flatPosts.length,
+    fetchNextPage,
+  ]);
 
   return (
     <View style={styles.root}>
       <Text style={styles.lead}>
-        Публичный демо-API JSONPlaceholder (HTTPS). Обрати внимание:{' '}
-        <Text style={styles.mono}>loading</Text> →{' '}
-        <Text style={styles.mono}>success</Text> или{' '}
-        <Text style={styles.mono}>error</Text>, отмена запроса при уходе с
-        экрана через <Text style={styles.mono}>AbortController</Text>.
+        Список через <Text style={styles.mono}>useInfiniteQuery</Text>: при
+        долистывании вниз вызывается{' '}
+        <Text style={styles.mono}>fetchNextPage</Text> (сервер —{' '}
+        <Text style={styles.mono}>_start</Text> +{' '}
+        <Text style={styles.mono}>_limit</Text>).
       </Text>
 
-      {state.status === 'loading' ? (
+      {isPending ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#2563eb" />
           <Text style={styles.muted}>Загрузка…</Text>
         </View>
       ) : null}
 
-      {state.status === 'error' ? (
+      {error ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorTitle}>Ошибка</Text>
-          <Text style={styles.errorMessage}>{state.message}</Text>
-          <PrimaryButton title="Повторить запрос" onPress={retry} />
+          <Text style={styles.errorMessage}>{errMessage}</Text>
+          <PrimaryButton
+            title="Повторить запрос"
+            onPress={() => refetch()}
+            disabled={isRefetching}
+          />
         </View>
       ) : null}
 
-      {state.status === 'success' ? (
-        <FlatList
+      {data ? (
+        <FlatList<JsonPlaceholderPost>
           style={styles.list}
-          data={state.posts}
+          data={flatPosts}
           keyExtractor={item => String(item.id)}
           contentContainerStyle={styles.listContent}
           ItemSeparatorComponent={PostSeparator}
+          onEndReached={onEndReached}
+          onEndReachedThreshold={0.35}
+          ListFooterComponent={renderFooter}
           renderItem={({ item }) => (
             <Pressable
               onPress={() => {
@@ -167,6 +205,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 24,
+    flexGrow: 1,
   },
   sep: {
     height: 8,
@@ -200,6 +239,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#4b5563',
     lineHeight: 18,
+  },
+  footerLoad: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    gap: 8,
+  },
+  footerError: {
+    paddingVertical: 12,
+    gap: 10,
+    alignItems: 'stretch',
+  },
+  footerErrorText: {
+    fontSize: 13,
+    color: '#b91c1c',
+    textAlign: 'center',
+  },
+  endHint: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#9ca3af',
+    paddingVertical: 16,
   },
 });
 

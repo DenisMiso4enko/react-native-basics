@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useLayoutEffect } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -6,12 +6,16 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { PrimaryButton } from '../components/PrimaryButton';
 import type { ExtrasStackParamList } from '../navigation/types';
-import type { JsonPlaceholderPost } from './FetchDemoScreen';
+import {
+  fetchJsonPlaceholderPost,
+  jsonPlaceholderQueryKeys,
+} from '../services/jsonPlaceholderApi';
 
 type ScreenRouteProp = RouteProp<ExtrasStackParamList, 'ExtrasFetchPost'>;
 
@@ -20,54 +24,25 @@ type ScreenNav = NativeStackNavigationProp<
   'ExtrasFetchPost'
 >;
 
-async function fetchPostById(
-  id: number,
-  signal: AbortSignal,
-): Promise<JsonPlaceholderPost> {
-  const res = await fetch(
-    `https://jsonplaceholder.typicode.com/posts/${id}`,
-    { signal },
-  );
-  if (!res.ok) {
-    throw new Error(`Сервер ответил ${res.status}`);
-  }
-  return (await res.json()) as JsonPlaceholderPost;
-}
-
-type State =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'success'; post: JsonPlaceholderPost };
-
 export function FetchSinglePost() {
   const { params } = useRoute<ScreenRouteProp>();
   const navigation = useNavigation<ScreenNav>();
   const postId = params.postId;
 
-  const [state, setState] = useState<State>({ status: 'loading' });
-  const [retryNonce, setRetryNonce] = useState(0);
+  const { data, error, isPending, refetch, isRefetching } = useQuery({
+    queryKey: jsonPlaceholderQueryKeys.post(postId),
+    queryFn: ({ signal }) => fetchJsonPlaceholderPost(postId, signal),
+  });
 
-  const retry = useCallback(() => setRetryNonce(n => n + 1), []);
+  const errMessage =
+    error instanceof Error ? error.message : 'Не удалось загрузить пост';
 
-  useEffect(() => {
-    const ac = new AbortController();
-    setState({ status: 'loading' });
-
-    fetchPostById(postId, ac.signal)
-      .then(post => {
-        setState({ status: 'success', post });
-        const short = post.title.length > 42 ? `${post.title.slice(0, 42)}…` : post.title;
-        navigation.setOptions({ title: short });
-      })
-      .catch(e => {
-        if (e instanceof Error && e.name === 'AbortError') return;
-        const message =
-          e instanceof Error ? e.message : 'Не удалось загрузить пост';
-        setState({ status: 'error', message });
-      });
-
-    return () => ac.abort();
-  }, [postId, retryNonce]); // eslint-disable-line react-hooks/exhaustive-deps -- navigation намеренно не в зависимостях
+  useLayoutEffect(() => {
+    if (!data) return;
+    const short =
+      data.title.length > 42 ? `${data.title.slice(0, 42)}…` : data.title;
+    navigation.setOptions({ title: short });
+  }, [data, navigation]);
 
   return (
     <View style={styles.root}>
@@ -75,27 +50,31 @@ export function FetchSinglePost() {
         Запрошен id: <Text style={styles.mono}>{postId}</Text>
       </Text>
 
-      {state.status === 'loading' ? (
+      {isPending ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#2563eb" />
           <Text style={styles.muted}>Загрузка…</Text>
         </View>
       ) : null}
 
-      {state.status === 'error' ? (
+      {error ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorTitle}>Ошибка</Text>
-          <Text style={styles.errorMessage}>{state.message}</Text>
-          <PrimaryButton title="Повторить" onPress={retry} />
+          <Text style={styles.errorMessage}>{errMessage}</Text>
+          <PrimaryButton
+            title="Повторить"
+            onPress={() => refetch()}
+            disabled={isRefetching}
+          />
         </View>
       ) : null}
 
-      {state.status === 'success' ? (
+      {data ? (
         <View style={styles.card}>
-          <Text style={styles.title}>{state.post.title}</Text>
-          <Text style={styles.body}>{state.post.body}</Text>
+          <Text style={styles.title}>{data.title}</Text>
+          <Text style={styles.body}>{data.body}</Text>
           <Text style={styles.footer}>
-            userId: {state.post.userId} · id: {state.post.id}
+            userId: {data.userId} · id: {data.id}
           </Text>
         </View>
       ) : null}

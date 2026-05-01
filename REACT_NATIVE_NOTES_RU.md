@@ -10,10 +10,10 @@
 
 ## Что смотреть в репозитории
 
-- **`App.tsx`**: корневой компонент (`GestureHandlerRootView`, `SafeAreaProvider`, `NavigationContainer`).
+- **`App.tsx`**: корневой компонент (`GestureHandlerRootView`, `SafeAreaProvider`, `AppQueryProvider` / TanStack Query, `NavigationContainer`).
 - **`index.js`**: первой строкой импорт `react-native-gesture-handler` (нужен для жестов навигатора).
 - **`src/navigation/`**: табы, стеки и типы (`RootNavigator`, `MainTabs`, `MainStack`, `ExtrasStack`, `types.ts`).
-- **`src/screens/`**: экраны (`HomeScreen`, `LearningBasicsScreen`, `ExtrasScreen`, `ExtrasPracticeScreen`, `FetchDemoScreen`, `FetchSinglePost`).
+- **`src/screens/`**, **`src/services/`**, **`src/types/`**, **`src/providers/`**: экраны, HTTP-слой, доменные типы, провайдеры (см. TanStack Query).
 - **`src/components/*`**: маленькие переиспользуемые UI-компоненты.
 - **`ios/`**: Xcode проект + `Podfile` (CocoaPods).
 - **`android/`**: Gradle проект.
@@ -123,16 +123,23 @@
 ## Сеть (fetch) в этом проекте
 
 - В RN для HTTP чаще всего используют **`fetch`** (как во многих современных браузерах) или обёртки вроде `axios`; специализированная библиотека RN не обязательна для простых случаев.
-- Экран **`FetchDemoScreen`** (`ExtrasFetch` в **`ExtrasStack`**) делает GET к публичному демо-API JSONPlaceholder по HTTPS (`/posts?_limit=10`).
-- Экран **`FetchSinglePost`** (`ExtrasFetchPost`) по **`postId` из параметров маршрута** запрашивает один ресурс (`GET …/posts/{id}`). Тот же паттерн состояний: загрузка, ошибка с «Повторить», успех и **`AbortController`** в `useEffect` (перезапуск при смене `postId` или повторе после ошибки). Тип записи **`JsonPlaceholderPost`** экспортируется из `FetchDemoScreen` и переиспользуется.
-- **Состояния UI на списке**: загрузка (`ActivityIndicator`), ошибка с текстом + кнопка «Повторить» (перезапуск через зависимость `useEffect`, например счётчик), успех (`FlatList` с `data`, `renderItem`, `keyExtractor`).
-- **Отмена запроса**: в `useEffect` создаётся **`AbortController`**, в очистке эффекта вызывается `abort()` — чтобы после ухода с экрана не вызывать `setState` по завершении старого запроса. В `catch` игнорируют отмену (`AbortError`).
-- После ошибки HTTP проверяй **`response.ok`** (или код статуса) — `fetch` по умолчанию **не считает 4xx/5xx ошибкой**, только сетевые сбои.
+- **Сервис** **`src/services/jsonPlaceholderApi.ts`**: базовый URL, посты **страницами** (`GET …/posts?_start=&_limit=`), один пост (`GET …/posts/{id}`), проверка **`response.ok`**, ключи **`jsonPlaceholderQueryKeys`** (в т.ч. **`postsInfinite`** для бесконечного списка).
+- Тип ответа API — **`JsonPlaceholderPost`** (`src/types/jsonPlaceholder.ts`).
+- Список **`FetchDemoScreen`**: **`useInfiniteQuery`** + **`FlatList`** с **`onEndReached`** → **`fetchNextPage()`** до исчерпания данных (`getNextPageParam`: если пришло меньше элементов страницы, чем **`PAGE_SIZE`**, дальнейших страниц нет). Футер: индикатор **`isFetchingNextPage`**, ошибка подгрузки — **`isFetchNextPageError`**.
+- Детально **`FetchSinglePost`**: обычный **`useQuery`** по id: кэш, **`staleTime`**, **`refetch()`**, **`signal`** в `queryFn`. Провайдер **`QueryClientProvider`** — **`src/providers/AppQueryProvider.tsx`**, в **`App.tsx`** внутри `SafeAreaProvider`.
+- **UI**: первая загрузка / ошибка списка — как раньше; при догрузке страниц — отдельный футер списка.
+- После ошибки HTTP проверяй **`response.ok`** — в проекте это в сервисе. Следующий шаг — общий **`apiClient`** (base URL, заголовки, авторизация).
+
+Чтобы Jest не падал на ESM-коде TanStack Query, в **`jest.config.js`** в **`transformIgnorePatterns`** добавлен паттерн **`@tanstack/.*`**.
+
+### Архитектура запросов (кратко)
+
+- **Экран** — когда что показать (спиннер / ошибка / список). **Сервис** — как ходить в API. **TanStack Query** — когда перезапрашивать, куда класть кэш, как отменять через `signal`.
 
 ## Дальше (что учить следующим шагом)
 
 - **Deep linking** (то же приложение из внешней ссылки / пуша с id в пути или query).
-- **Сеть глубже**: вынос клиента в `services/api.ts`, TanStack Query / SWR, авторизация, таймауты.
+- **Сеть глубже**: общий **`apiClient`**, мутации (**`useMutation`**), инвалидация кэша после POST/PUT, авторизация, таймауты (или SWR как альтернатива Query).
 - **Архитектура**: разделение `screens/`, `components/`, `services/`, `state/`.
 - **Состояние**: Context, Zustand, Redux Toolkit (по мере роста).
 - **Нативные модули**: когда нужно то, чего нет в JS.
